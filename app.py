@@ -80,7 +80,7 @@ def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     for col in df.columns:
         # Try datetime detection on any non-numeric column, not just object
         if not pd.api.types.is_numeric_dtype(df[col]):
-            parsed = pd.to_datetime(df[col], errors="coerce", infer_datetime_format=True)
+            parsed = pd.to_datetime(df[col], errors="coerce")
             if parsed.notna().mean() >= 0.6:
                 df[col] = parsed
     return df
@@ -96,7 +96,7 @@ def detect_date_column(df: pd.DataFrame) -> Optional[str]:
     name_hints = ["date", "time", "timestamp", "datetime", "day"]
     for col in df.columns:
         if any(hint in col.lower() for hint in name_hints):
-            parsed = pd.to_datetime(df[col], errors="coerce", infer_datetime_format=True)
+            parsed = pd.to_datetime(df[col], errors="coerce")
             if parsed.notna().mean() >= 0.6:
                 df[col] = parsed
                 return col
