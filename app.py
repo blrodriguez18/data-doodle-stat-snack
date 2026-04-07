@@ -226,9 +226,6 @@ def apply_sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
                 )
                 filtered = filtered[(filtered[selected_num] >= low) & (filtered[selected_num] <= high)]
 
-    st.sidebar.divider()
-    st.sidebar.caption("Tip: use a date column for anomaly detection and forecasting.")
-
     return filtered
 
 
@@ -535,7 +532,10 @@ def render_dynamic_kpis(df: pd.DataFrame, date_col: Optional[str] = None, cards_
 # -----------------------------
 copyright = st.sidebar.write("Copyright © 2026 Beatriz Rodriguez. All rights reserved.")
 uploaded = st.sidebar.file_uploader("Upload a CSV", type=["csv"])
+tip = st.sidebar.caption("Tip: use a date column for anomaly detection and forecasting.")
+
 data_source = st.sidebar.radio("Data source", ["Sample data", "Upload CSV"])
+div = st.sidebar.divider()
 
 if data_source == "Upload CSV":
     if uploaded is not None:
