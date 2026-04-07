@@ -1173,7 +1173,7 @@ def render_ml_section(df: pd.DataFrame, date_col: Optional[str] = None):
 
     mode = st.selectbox(
         "Choose an analysis",
-        ["Regression", "Classification", "Clusterings"],
+        ["Regression", "Classification", "Clustering"],
         key="ml_mode",
     )
 
