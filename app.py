@@ -78,11 +78,29 @@ def make_sample_data(n: int = 240) -> pd.DataFrame:
 def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     for col in df.columns:
-        if df[col].dtype == object:
+        # Try datetime detection on any non-numeric column, not just object
+        if not pd.api.types.is_numeric_dtype(df[col]):
             parsed = pd.to_datetime(df[col], errors="coerce", infer_datetime_format=True)
-            if parsed.notna().sum() >= max(3, int(0.6 * len(df))):
+            if parsed.notna().mean() >= 0.6:
                 df[col] = parsed
     return df
+
+
+def detect_date_column(df: pd.DataFrame) -> Optional[str]:
+    # Prefer an actual datetime column
+    dcols = datetime_columns(df)
+    if dcols:
+        return dcols[0]
+
+    # Fallback: try name-based detection
+    name_hints = ["date", "time", "timestamp", "datetime", "day"]
+    for col in df.columns:
+        if any(hint in col.lower() for hint in name_hints):
+            parsed = pd.to_datetime(df[col], errors="coerce", infer_datetime_format=True)
+            if parsed.notna().mean() >= 0.6:
+                df[col] = parsed
+                return col
+    return None
 
 
 def numeric_columns(df: pd.DataFrame) -> list[str]:
@@ -438,64 +456,78 @@ def fmt_pct(x: Optional[float]) -> str:
     return f"{x:.1f}%"
 
 
-def compute_kpis(df: pd.DataFrame, date_col: Optional[str]) -> dict:
-    rev_col = revenue_column(df)
-    users_col = active_users_column(df)
-    churn_col = churn_column(df)
-    growth_col = growth_reference_column(df)
+# def compute_kpis(df: pd.DataFrame, date_col: Optional[str]) -> dict:
+#     rev_col = revenue_column(df)
+#     users_col = active_users_column(df)
+#     churn_col = churn_column(df)
+#     growth_col = growth_reference_column(df)
 
-    kpis = {"revenue": None, "active_users": None, "churn": None, "growth": None}
+#     kpis = {"revenue": None, "active_users": None, "churn": None, "growth": None}
 
-    if rev_col:
-        kpis["revenue"] = float(pd.to_numeric(df[rev_col], errors="coerce").sum(skipna=True))
+#     if rev_col:
+#         kpis["revenue"] = float(pd.to_numeric(df[rev_col], errors="coerce").sum(skipna=True))
 
-    if users_col:
-        series = pd.to_numeric(df[users_col], errors="coerce")
-        if "active" in users_col.lower() or "users" in users_col.lower():
-            kpis["active_users"] = float(series.dropna().sum()) if series.notna().any() else None
-        else:
-            kpis["active_users"] = float(series.dropna().iloc[-1]) if series.notna().any() else None
+#     if users_col:
+#         series = pd.to_numeric(df[users_col], errors="coerce")
+#         if "active" in users_col.lower() or "users" in users_col.lower():
+#             kpis["active_users"] = float(series.dropna().sum()) if series.notna().any() else None
+#         else:
+#             kpis["active_users"] = float(series.dropna().iloc[-1]) if series.notna().any() else None
 
-    if churn_col:
-        s = pd.to_numeric(df[churn_col], errors="coerce").dropna()
-        if not s.empty:
-            if s.max() <= 1.0:
-                kpis["churn"] = float(s.mean() * 100.0)
-            else:
-                kpis["churn"] = float(s.mean())
+#     if churn_col:
+#         s = pd.to_numeric(df[churn_col], errors="coerce").dropna()
+#         if not s.empty:
+#             if s.max() <= 1.0:
+#                 kpis["churn"] = float(s.mean() * 100.0)
+#             else:
+#                 kpis["churn"] = float(s.mean())
 
-    if date_col and growth_col and date_col in df.columns and growth_col in df.columns:
-        tmp = df[[date_col, growth_col]].copy()
-        tmp[date_col] = pd.to_datetime(tmp[date_col], errors="coerce")
-        tmp[growth_col] = pd.to_numeric(tmp[growth_col], errors="coerce")
-        tmp = tmp.dropna().sort_values(date_col)
-        if len(tmp) >= 14:
-            last_7 = tmp.tail(7)[growth_col].sum()
-            prev_7 = tmp.iloc[-14:-7][growth_col].sum()
-            if prev_7 != 0:
-                kpis["growth"] = ((last_7 - prev_7) / abs(prev_7)) * 100.0
-        elif len(tmp) >= 2:
-            first = tmp.iloc[0][growth_col]
-            last = tmp.iloc[-1][growth_col]
-            if first != 0:
-                kpis["growth"] = ((last - first) / abs(first)) * 100.0
+#     if date_col and growth_col and date_col in df.columns and growth_col in df.columns:
+#         tmp = df[[date_col, growth_col]].copy()
+#         tmp[date_col] = pd.to_datetime(tmp[date_col], errors="coerce")
+#         tmp[growth_col] = pd.to_numeric(tmp[growth_col], errors="coerce")
+#         tmp = tmp.dropna().sort_values(date_col)
+#         if len(tmp) >= 14:
+#             last_7 = tmp.tail(7)[growth_col].sum()
+#             prev_7 = tmp.iloc[-14:-7][growth_col].sum()
+#             if prev_7 != 0:
+#                 kpis["growth"] = ((last_7 - prev_7) / abs(prev_7)) * 100.0
+#         elif len(tmp) >= 2:
+#             first = tmp.iloc[0][growth_col]
+#             last = tmp.iloc[-1][growth_col]
+#             if first != 0:
+#                 kpis["growth"] = ((last - first) / abs(first)) * 100.0
 
-    return kpis
+#     return kpis
 
 
-def render_kpi_row(kpis: dict):
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("Revenue", fmt_money(kpis.get("revenue")))
-    with c2:
-        st.metric("Active Users", fmt_num(kpis.get("active_users")))
-    with c3:
-        churn = kpis.get("churn")
-        st.metric("Churn", fmt_pct(churn))
-    with c4:
-        growth = kpis.get("growth")
-        delta = None if growth is None or not np.isfinite(growth) else f"{growth:.1f}%"
-        st.metric("Growth", fmt_pct(growth), delta=delta)
+def render_dynamic_kpis(df: pd.DataFrame, date_col: Optional[str] = None, cards_per_row: int = 4):
+    excluded = set(datetime_columns(df))
+    if date_col:
+        excluded.add(date_col)
+
+    metric_cols = [
+        c for c in df.columns
+        if c not in excluded and pd.api.types.is_numeric_dtype(df[c])
+    ]
+
+    if not metric_cols:
+        st.info("No numeric columns found for KPI cards.")
+        return
+
+    def latest_numeric(series: pd.Series) -> Optional[float]:
+        s = pd.to_numeric(series, errors="coerce").dropna()
+        if s.empty:
+            return None
+        return float(s.iloc[-1])
+
+    for i in range(0, len(metric_cols), cards_per_row):
+        row_cols = metric_cols[i:i + cards_per_row]
+        cols = st.columns(len(row_cols))
+        for ui_col, metric_col in zip(cols, row_cols):
+            with ui_col:
+                value = latest_numeric(df[metric_col])
+                st.metric(metric_col.replace("_", " ").title(), fmt_num(value))
 
 
 # -----------------------------
@@ -519,17 +551,13 @@ else:  # Sample data
 
 df = clean_df(df)
 st.session_state["df"] = df
-
 filtered_df = apply_sidebar_filters(df)
 
 st.subheader("Overview")
 st.write(text_summary(filtered_df))
 
-date_cols = datetime_columns(filtered_df)
-date_col = date_cols[0] if date_cols else None
-
-kpis = compute_kpis(filtered_df, date_col)
-render_kpi_row(kpis)
+date_col = detect_date_column(filtered_df)
+render_dynamic_kpis(filtered_df, date_col)
 
 st.divider()
 
@@ -1145,7 +1173,7 @@ def render_ml_section(df: pd.DataFrame, date_col: Optional[str] = None):
 
     mode = st.selectbox(
         "Choose an analysis",
-        ["Predict Revenue", "Predict Churn", "Cluster Users"],
+        ["Regression", "Classification", "Clusterings"],
         key="ml_mode",
     )
 
@@ -1155,7 +1183,7 @@ def render_ml_section(df: pd.DataFrame, date_col: Optional[str] = None):
     # -----------------------------
     # 1) Predict Revenue
     # -----------------------------
-    if mode == "Predict Revenue":
+    if mode == "Regression":
         target_options = [c for c in num_cols if c != "churn_rate"]
         if not target_options:
             st.warning("No numeric target columns found.")
@@ -1211,7 +1239,7 @@ def render_ml_section(df: pd.DataFrame, date_col: Optional[str] = None):
     # -----------------------------
     # 2) Predict Churn
     # -----------------------------
-    elif mode == "Predict Churn":
+    elif mode == "Classification":
         target_options = [c for c in usable_cols if c != date_col]
         if not target_options:
             st.warning("No target columns found.")
@@ -1256,7 +1284,7 @@ def render_ml_section(df: pd.DataFrame, date_col: Optional[str] = None):
     # -----------------------------
     # 3) Cluster Users
     # -----------------------------
-    elif mode == "Cluster Users":
+    elif mode == "Clustering":
         feature_candidates = usable_cols
         default_features = num_cols[:5] if num_cols else feature_candidates[:5]
 
